@@ -1,0 +1,14 @@
+# Ignore EVERYTHING
+*
+
+# Allow these files
+!tracker.py
+!server.py
+
+# Allow the three directory
+!three/
+!three/main.js
+!three/index.html
+
+# Allow git itself
+!.gitignore

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeapVE AR</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
+<base target="_blank">
+</head>
+<body>
+    <!-- MJPEG stream from OpenCV -->
+    <img id="camfeed" src="http://localhost:5001" alt="camera">
+
+    <div id="info">LEAPVE AR — 3D PIANO</div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
