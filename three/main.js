@@ -1,166 +1,586 @@
 import * as THREE from "three";
 
+
 // ============================================================
-// SOCKET.IO
+// LEAPVE
+// THREE.JS 4-POINT VISUALIZER
 // ============================================================
+
+
+// ============================================================
+// 1. SOCKET.IO
+// ============================================================
+
 const socket = io("http://localhost:5000");
+
+
+// ============================================================
+// 2. PIANO DATA
+// ============================================================
+
 let pianoPoints = null;
 
-socket.on("connect",    () => console.log("✅ Connected to OpenCV"));
-socket.on("disconnect", () => console.log("❌ OpenCV disconnected"));
-socket.on("piano_points", (data) => {
-    if (data && data.points) pianoPoints = data.points;
+let pianoNormalized = null;
+
+let pianoFrame = {
+    width: 640,
+    height: 480
+};
+
+
+// ============================================================
+// 3. SOCKET CONNECTION
+// ============================================================
+
+socket.on("connect", () => {
+
+    console.log(
+        "✅ Three.js connected to OpenCV"
+    );
+
 });
 
-// ============================================================
-// THREE.JS SCENE  (transparent background so video shows through)
-// ============================================================
-const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(
-    50,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100
-);
-camera.position.set(0, 3, 6);
-camera.lookAt(0, 0, 0);
+socket.on("disconnect", () => {
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setClearColor(0x000000, 0);
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-dirLight.position.set(2, 5, 4);
-scene.add(dirLight);
-
-// ============================================================
-// 7-KEY PIANO
-// ============================================================
-const pianoGroup = new THREE.Group();
-scene.add(pianoGroup);
-
-const keyWidth  = 0.25;
-const keyHeight = 0.08;
-const keyDepth  = 1.2;
-const keyGeom   = new THREE.BoxGeometry(keyWidth, keyHeight, keyDepth);
-
-for (let i = 0; i < 7; i++) {
-    const mat = new THREE.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.3, metalness: 0.1
-    });
-    const key = new THREE.Mesh(keyGeom, mat);
-    key.position.set((i - 3) * keyWidth, keyHeight / 2, 0);
-    pianoGroup.add(key);
-
-    const edges = new THREE.EdgesGeometry(keyGeom);
-    const line  = new THREE.LineSegments(
-        edges,
-        new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 })
+    console.log(
+        "❌ OpenCV disconnected"
     );
-    key.add(line);
-}
+
+});
+
 
 // ============================================================
-// COORDINATE MAPPING
+// 4. RECEIVE 4 POINTS
 // ============================================================
-const CAM_W = 1280;
-const CAM_H = 720;
 
-function videoToScreen(vx, vy) {
-    const vAspect = CAM_W / CAM_H;
-    const wAspect = window.innerWidth / window.innerHeight;
-    let scale, offX, offY;
+socket.on(
+    "piano_points",
+    (data) => {
 
-    if (wAspect > vAspect) {
-        scale = window.innerHeight / CAM_H;
-        offX  = (window.innerWidth  - CAM_W * scale) / 2;
-        offY  = 0;
-    } else {
-        scale = window.innerWidth / CAM_W;
-        offX  = 0;
-        offY  = (window.innerHeight - CAM_H * scale) / 2;
+        if (
+            !data ||
+            !data.points ||
+            data.points.length !== 4
+        ) {
+
+            return;
+
+        }
+
+
+        pianoPoints = data.points;
+
+
+        pianoNormalized =
+            data.normalized;
+
+
+        pianoFrame =
+            data.frame;
+
+
+        console.log(
+            "📐 Piano points:",
+            pianoPoints
+        );
+
     }
-    return { x: vx * scale + offX, y: vy * scale + offY };
-}
+);
 
-function screenToWorld(sx, sy) {
-    const ndcX = (sx / window.innerWidth)  * 2 - 1;
-    const ndcY = -(sy / window.innerHeight) * 2 + 1;
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -keyHeight / 2);
-    const target = new THREE.Vector3();
-    raycaster.ray.intersectPlane(plane, target);
-    return target;
-}
 
 // ============================================================
-// UPDATE PIANO FROM OPENCV
+// 5. THREE.JS SCENE
 // ============================================================
-function updatePianoFromOpenCV() {
-    if (!pianoPoints || pianoPoints.length !== 4) return;
 
-    const s0 = videoToScreen(pianoPoints[0][0], pianoPoints[0][1]);
-    const s1 = videoToScreen(pianoPoints[1][0], pianoPoints[1][1]);
-    const s2 = videoToScreen(pianoPoints[2][0], pianoPoints[2][1]);
-    const s3 = videoToScreen(pianoPoints[3][0], pianoPoints[3][1]);
+const scene =
+    new THREE.Scene();
 
-    const w0 = screenToWorld(s0.x, s0.y);
-    const w1 = screenToWorld(s1.x, s1.y);
-    const w2 = screenToWorld(s2.x, s2.y);
-    const w3 = screenToWorld(s3.x, s3.y);
 
-    if (!w0 || !w1 || !w2 || !w3) return;
-
-    const center = new THREE.Vector3();
-    [w0, w1, w2, w3].forEach(w => center.add(w));
-    center.multiplyScalar(0.25);
-
-    const widthTop    = w0.distanceTo(w1);
-    const widthBottom = w3.distanceTo(w2);
-    const avgWidth    = (widthTop + widthBottom) / 2;
-
-    const depthLeft  = w0.distanceTo(w3);
-    const depthRight = w1.distanceTo(w2);
-    const avgDepth   = (depthLeft + depthRight) / 2;
-
-    const angle = Math.atan2(w1.z - w0.z, w1.x - w0.x);
-
-    pianoGroup.position.copy(center);
-    pianoGroup.position.y = keyHeight / 2;
-
-    const totalKeyWidth = 7 * keyWidth;
-    pianoGroup.scale.set(
-        Math.max(avgWidth / totalKeyWidth, 0.01),
-        1,
-        Math.max(avgDepth / keyDepth, 0.01)
+scene.background =
+    new THREE.Color(
+        0x111111
     );
 
-    pianoGroup.rotation.y = angle;
+
+// ============================================================
+// 6. CAMERA
+// ============================================================
+
+const camera =
+    new THREE.OrthographicCamera(
+        -1,
+        1,
+        1,
+        -1,
+        0.1,
+        10
+    );
+
+
+camera.position.z = 1;
+
+
+// ============================================================
+// 7. RENDERER
+// ============================================================
+
+const renderer =
+    new THREE.WebGLRenderer({
+        antialias: true
+    });
+
+
+renderer.setPixelRatio(
+    window.devicePixelRatio
+);
+
+
+renderer.setSize(
+    window.innerWidth,
+    window.innerHeight
+);
+
+
+document.body.appendChild(
+    renderer.domElement
+);
+
+
+// ============================================================
+// 8. 2D POINTS
+// ============================================================
+
+const pointMaterial =
+    new THREE.PointsMaterial({
+
+        color: 0x00ffcc,
+
+        size: 12,
+
+        sizeAttenuation: false
+
+    });
+
+
+const pointGeometry =
+    new THREE.BufferGeometry();
+
+
+const pointMesh =
+    new THREE.Points(
+        pointGeometry,
+        pointMaterial
+    );
+
+
+scene.add(
+    pointMesh
+);
+
+
+// ============================================================
+// 9. PIANO OUTLINE
+// ============================================================
+
+let outlineGeometry =
+    new THREE.BufferGeometry();
+
+
+let outlineMaterial =
+    new THREE.LineBasicMaterial({
+
+        color: 0x00ffff,
+
+        linewidth: 3
+
+    });
+
+
+let pianoOutline =
+    new THREE.Line(
+        outlineGeometry,
+        outlineMaterial
+    );
+
+
+scene.add(
+    pianoOutline
+);
+
+
+// ============================================================
+// 10. FOUR CORNER LABELS
+// ============================================================
+
+const labels = [];
+
+for (let i = 0; i < 4; i++) {
+
+    const canvas =
+        document.createElement(
+            "canvas"
+        );
+
+
+    canvas.width = 256;
+
+    canvas.height = 128;
+
+
+    const context =
+        canvas.getContext("2d");
+
+
+    context.font =
+        "bold 48px Arial";
+
+
+    context.fillStyle =
+        "#00ffcc";
+
+
+    context.fillText(
+        `P${i + 1}`,
+        20,
+        60
+    );
+
+
+    const texture =
+        new THREE.CanvasTexture(
+            canvas
+        );
+
+
+    const material =
+        new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true
+        });
+
+
+    const sprite =
+        new THREE.Sprite(
+            material
+        );
+
+
+    sprite.scale.set(
+        0.12,
+        0.06,
+        1
+    );
+
+
+    scene.add(
+        sprite
+    );
+
+
+    labels.push(
+        sprite
+    );
+
 }
 
-// ============================================================
-// RESIZE
-// ============================================================
-window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
 
 // ============================================================
-// ANIMATION
+// 11. CONVERT NORMALIZED OPENCV
+//     TO THREE.JS COORDINATES
+//
+// OpenCV:
+//
+// 0,0 ---------------- 1,0
+// |                      |
+// |        PIANO         |
+// |                      |
+// 0,1 ---------------- 1,1
+//
+// Three.js:
+//
+// -1,+1 -------------- +1,+1
+// |                      |
+// |        PIANO         |
+// |                      |
+// -1,-1 -------------- +1,-1
+//
 // ============================================================
+
+function normalizedToThree(
+    point
+) {
+
+    const nx =
+        point[0];
+
+    const ny =
+        point[1];
+
+
+    const x =
+        -1 +
+        nx * 2;
+
+
+    const y =
+        1 -
+        ny * 2;
+
+
+    return {
+        x,
+        y
+    };
+
+}
+
+
+// ============================================================
+// 12. UPDATE PIANO VISUAL
+// ============================================================
+
+function updatePianoVisual() {
+
+    if (
+        !pianoNormalized ||
+        pianoNormalized.length !== 4
+    ) {
+
+        return;
+
+    }
+
+
+    const positions = [];
+
+
+    // --------------------------------------------------------
+    // FOUR CORNER POINTS
+    // --------------------------------------------------------
+
+    for (
+        let i = 0;
+        i < 4;
+        i++
+    ) {
+
+        const point =
+            normalizedToThree(
+                pianoNormalized[i]
+            );
+
+
+        positions.push(
+            point.x,
+            point.y,
+            0
+        );
+
+
+        // Label
+
+        labels[i].position.set(
+            point.x + 0.06,
+            point.y + 0.06,
+            0.1
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // UPDATE POINT CLOUD
+    // --------------------------------------------------------
+
+    pointGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+            positions,
+            3
+        )
+    );
+
+
+    pointGeometry.attributes.position.needsUpdate =
+        true;
+
+
+    // --------------------------------------------------------
+    // OUTLINE
+    //
+    // P1 -> P2 -> P3 -> P4 -> P1
+    // --------------------------------------------------------
+
+    const outlinePositions = [
+
+        positions[0],
+        positions[1],
+        positions[2],
+
+        positions[3],
+        positions[4],
+        positions[5],
+
+        positions[6],
+        positions[7],
+        positions[8],
+
+        positions[9],
+        positions[10],
+        positions[11],
+
+        positions[0],
+        positions[1],
+        positions[2]
+
+    ];
+
+
+    outlineGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+            outlinePositions,
+            3
+        )
+    );
+
+
+    outlineGeometry.attributes.position.needsUpdate =
+        true;
+
+}
+
+
+// ============================================================
+// 13. GRID
+// ============================================================
+
+const gridMaterial =
+    new THREE.LineBasicMaterial({
+
+        color: 0x222222
+
+    });
+
+
+const gridPositions = [];
+
+
+// Vertical lines
+
+for (
+    let i = 0;
+    i <= 10;
+    i++
+) {
+
+    const x =
+        -1 +
+        (i / 10) * 2;
+
+
+    gridPositions.push(
+        x,
+        -1,
+        -0.1,
+
+        x,
+        1,
+        -0.1
+    );
+
+}
+
+
+// Horizontal lines
+
+for (
+    let i = 0;
+    i <= 10;
+    i++
+) {
+
+    const y =
+        -1 +
+        (i / 10) * 2;
+
+
+    gridPositions.push(
+        -1,
+        y,
+        -0.1,
+
+        1,
+        y,
+        -0.1
+    );
+
+}
+
+
+const gridGeometry =
+    new THREE.BufferGeometry();
+
+
+gridGeometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+        gridPositions,
+        3
+    )
+);
+
+
+const grid =
+    new THREE.LineSegments(
+        gridGeometry,
+        gridMaterial
+    );
+
+
+scene.add(
+    grid
+);
+
+
+// ============================================================
+// 14. RESIZE
+// ============================================================
+
+window.addEventListener(
+    "resize",
+    () => {
+
+        renderer.setSize(
+            window.innerWidth,
+            window.innerHeight
+        );
+
+    }
+);
+
+
+// ============================================================
+// 15. ANIMATION
+// ============================================================
+
 function animate() {
-    requestAnimationFrame(animate);
-    updatePianoFromOpenCV();
-    renderer.render(scene, camera);
+
+    requestAnimationFrame(
+        animate
+    );
+
+
+    updatePianoVisual();
+
+
+    renderer.render(
+        scene,
+        camera
+    );
+
 }
+
+
 animate();
