@@ -4,98 +4,72 @@ import * as THREE from "three";
 // ============================================================
 // LEAPVE
 //
-// BROWSER 4-POINT CALIBRATION
+// BROWSER CALIBRATION ONLY
 //
-// Camera
+// CAMERA
 //    ↓
-// Three.js transparent layer
+// CALIBRATION PANEL
+//    ↓
+// THREE.JS TRANSPARENT OVERLAY
 //    ↓
 // P1 P2 P3 P4
 //    ↓
-// Editable polygon
+// DRAGGABLE
 //    ↓
-// Glowing edges
+// GLOW
 //
-// OpenCV is NOT involved yet.
+// NO OPENCV
+// NO 3D PIANO
 //
 // ============================================================
 
 
 // ============================================================
-// 1. CAMERA
+// DOM
 // ============================================================
 
 const video =
     document.getElementById("camera");
 
+const panel =
+    document.getElementById("calibration-panel");
 
-// ============================================================
-// 2. UI
-// ============================================================
+const container =
+    document.getElementById("three-container");
 
 const pointStatus =
     document.getElementById("point-status");
 
+const coordinates =
+    document.getElementById("coordinates");
 
-// ============================================================
-// 3. START CAMERA
-// ============================================================
+const cameraStatus =
+    document.getElementById("camera-status");
 
-async function startCamera() {
+const startButton =
+    document.getElementById("start-btn");
 
-    try {
-
-        const stream =
-            await navigator.mediaDevices
-                .getUserMedia({
-
-                    video: {
-
-                        width: {
-                            ideal: 1280
-                        },
-
-                        height: {
-                            ideal: 720
-                        }
-
-                    },
-
-                    audio: false
-
-                });
-
-
-        video.srcObject =
-            stream;
-
-
-        console.log(
-            "✅ Browser camera started"
-        );
-
-    }
-
-    catch (error) {
-
-        console.error(
-            "❌ Camera error:",
-            error
-        );
-
-        pointStatus.textContent =
-            "CAMERA ERROR";
-
-    }
-
-}
-
-
-startCamera();
+const resetButton =
+    document.getElementById("reset-btn");
 
 
 // ============================================================
-// 4. THREE.JS SCENE
+// CALIBRATION STATE
+// ============================================================
+
+const MAX_POINTS = 4;
+
+const points = [];
+
+let calibrationActive = false;
+
+let selectedPoint = null;
+
+let dragging = false;
+
+
+// ============================================================
+// THREE.JS SCENE
 // ============================================================
 
 const scene =
@@ -103,30 +77,24 @@ const scene =
 
 
 // ============================================================
-// 5. ORTHOGRAPHIC CAMERA
+// THREE.JS CAMERA
 //
-// This is important.
+// IMPORTANT:
 //
-// We want browser coordinates:
+// This is NOT using window.innerWidth.
 //
-// (0,0)
-//   ┌─────────────────────┐
-//   │                     │
-//   │       CAMERA        │
-//   │                     │
-//   └─────────────────────┘
-//                  (W,H)
+// It will be resized to the EXACT
+// calibration panel dimensions.
 //
-// So Three.js behaves like a 2D canvas.
 // ============================================================
 
 const camera =
     new THREE.OrthographicCamera(
 
         0,
-        window.innerWidth,
+        1000,
 
-        window.innerHeight,
+        1000,
         0,
 
         -1000,
@@ -134,13 +102,11 @@ const camera =
 
     );
 
-
-camera.position.z =
-    10;
+camera.position.z = 10;
 
 
 // ============================================================
-// 6. RENDERER
+// RENDERER
 // ============================================================
 
 const renderer =
@@ -156,18 +122,12 @@ const renderer =
 renderer.setPixelRatio(
 
     Math.min(
+
         window.devicePixelRatio,
+
         2
+
     )
-
-);
-
-
-renderer.setSize(
-
-    window.innerWidth,
-
-    window.innerHeight
 
 );
 
@@ -178,48 +138,181 @@ renderer.setClearColor(
 );
 
 
-document
-    .getElementById(
-        "three-container"
-    )
-    .appendChild(
-        renderer.domElement
+container.appendChild(
+    renderer.domElement
+);
+
+
+// ============================================================
+// RESIZE THREE.JS TO PANEL
+//
+// THIS IS THE MOST IMPORTANT FIX.
+// ============================================================
+
+function resizeCalibration() {
+
+    const width =
+        panel.clientWidth;
+
+    const height =
+        panel.clientHeight;
+
+
+    if (
+        width <= 0 ||
+        height <= 0
+    ) {
+
+        return;
+
+    }
+
+
+    // -----------------------------------------
+    // Orthographic coordinates
+    //
+    // 0,0 = TOP LEFT
+    // width,height = BOTTOM RIGHT
+    // -----------------------------------------
+
+    camera.left = 0;
+
+    camera.right = width;
+
+    camera.top = 0;
+
+    camera.bottom = height;
+
+
+    camera.near = -1000;
+
+    camera.far = 1000;
+
+
+    camera.updateProjectionMatrix();
+
+
+    renderer.setSize(
+
+        width,
+
+        height,
+
+        false
+
     );
 
 
-// ============================================================
-// 7. POINT STORAGE
-//
-// Same order as OpenCV:
-//
-// P1 = TOP LEFT
-// P2 = TOP RIGHT
-// P3 = BOTTOM RIGHT
-// P4 = BOTTOM LEFT
-// ============================================================
+    updateVisuals();
 
-const points = [];
+}
 
 
-// Maximum points
-
-const MAX_POINTS = 4;
-
-
-// Currently dragged point
-
-let selectedPoint =
-    null;
-
-
-// Is mouse dragging?
-
-let dragging =
-    false;
+window.addEventListener(
+    "resize",
+    resizeCalibration
+);
 
 
 // ============================================================
-// 8. POINT GROUP
+// CAMERA
+// ============================================================
+
+async function startCamera() {
+
+    cameraStatus.textContent =
+        "CAMERA: REQUESTING...";
+
+
+    try {
+
+        const stream =
+            await navigator.mediaDevices
+                .getUserMedia({
+
+                    video: {
+
+                        width: {
+                            ideal: 1280
+                        },
+
+                        height: {
+                            ideal: 720
+                        },
+
+                        facingMode:
+                            "user"
+
+                    },
+
+                    audio: false
+
+                });
+
+
+        video.srcObject =
+            stream;
+
+
+        await video.play();
+
+
+        cameraStatus.textContent =
+            "CAMERA: READY";
+
+
+        cameraStatus.style.color =
+            "#00ff66";
+
+
+        console.log(
+            "✅ Camera initialized"
+        );
+
+
+        // Wait for video dimensions
+        // before sizing the overlay.
+
+        if (
+            video.readyState >= 1
+        ) {
+
+            resizeCalibration();
+
+        }
+
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Camera error:",
+            error
+        );
+
+
+        cameraStatus.textContent =
+            "CAMERA: ERROR";
+
+
+        cameraStatus.style.color =
+            "#ff4444";
+
+
+        pointStatus.textContent =
+            "CAMERA ERROR";
+
+    }
+
+}
+
+
+startCamera();
+
+
+// ============================================================
+// POINT GROUP
 // ============================================================
 
 const pointGroup =
@@ -231,25 +324,15 @@ scene.add(
 
 
 // ============================================================
-// 9. GLOW POINT MATERIAL
-// ============================================================
-
-const pointMaterial =
-    new THREE.MeshBasicMaterial({
-
-        color: 0x00ff66
-
-    });
-
-
-// ============================================================
-// 10. POINT MESHES
+// POINT MESHES
 // ============================================================
 
 const pointMeshes = [];
 
 
-// Create four point objects
+// ============================================================
+// CREATE POINTS
+// ============================================================
 
 for (
     let i = 0;
@@ -257,23 +340,35 @@ for (
     i++
 ) {
 
-    // Outer glow
+
+    // --------------------------------------------------------
+    // OUTER GLOW
+    // --------------------------------------------------------
 
     const glowGeometry =
         new THREE.CircleGeometry(
-            18,
-            32
+
+            24,
+
+            40
+
         );
 
 
     const glowMaterial =
         new THREE.MeshBasicMaterial({
 
-            color: 0x00ff66,
+            color:
+                0x00ff66,
 
-            transparent: true,
+            transparent:
+                true,
 
-            opacity: 0.15
+            opacity:
+                0.18,
+
+            depthTest:
+                false
 
         });
 
@@ -288,13 +383,80 @@ for (
         );
 
 
-    // Main point
+    glow.position.z =
+        -1;
+
+
+    // --------------------------------------------------------
+    // INNER GLOW
+    // --------------------------------------------------------
+
+    const innerGlowGeometry =
+        new THREE.CircleGeometry(
+
+            13,
+
+            40
+
+        );
+
+
+    const innerGlowMaterial =
+        new THREE.MeshBasicMaterial({
+
+            color:
+                0x00ffff,
+
+            transparent:
+                true,
+
+            opacity:
+                0.35,
+
+            depthTest:
+                false
+
+        });
+
+
+    const innerGlow =
+        new THREE.Mesh(
+
+            innerGlowGeometry,
+
+            innerGlowMaterial
+
+        );
+
+
+    innerGlow.position.z =
+        -0.5;
+
+
+    // --------------------------------------------------------
+    // MAIN POINT
+    // --------------------------------------------------------
 
     const geometry =
         new THREE.CircleGeometry(
-            8,
+
+            7,
+
             32
+
         );
+
+
+    const material =
+        new THREE.MeshBasicMaterial({
+
+            color:
+                0xffffff,
+
+            depthTest:
+                false
+
+        });
 
 
     const point =
@@ -302,19 +464,21 @@ for (
 
             geometry,
 
-            pointMaterial.clone()
+            material
 
         );
 
 
-    // Add glow behind point
-
-    glow.position.z =
-        -1;
+    point.position.z =
+        10;
 
 
     point.add(
         glow
+    );
+
+    point.add(
+        innerGlow
     );
 
 
@@ -339,19 +503,22 @@ for (
 
 
 // ============================================================
-// 11. LABELS
+// LABELS
 // ============================================================
 
 const labels = [];
 
 
-// Create P1/P2/P3/P4 labels
+// ============================================================
+// CREATE LABELS
+// ============================================================
 
 for (
     let i = 0;
     i < MAX_POINTS;
     i++
 ) {
+
 
     const canvas =
         document.createElement(
@@ -373,10 +540,12 @@ for (
 
 
     ctx.clearRect(
+
         0,
         0,
-        canvas.width,
-        canvas.height
+        128,
+        64
+
     );
 
 
@@ -393,7 +562,7 @@ for (
 
 
     ctx.shadowBlur =
-        10;
+        12;
 
 
     ctx.fillText(
@@ -412,14 +581,21 @@ for (
         );
 
 
+    texture.needsUpdate =
+        true;
+
+
     const material =
         new THREE.SpriteMaterial({
 
-            map: texture,
+            map:
+                texture,
 
-            transparent: true,
+            transparent:
+                true,
 
-            depthTest: false
+            depthTest:
+                false
 
         });
 
@@ -431,9 +607,11 @@ for (
 
 
     sprite.scale.set(
+
         70,
         35,
         1
+
     );
 
 
@@ -442,7 +620,7 @@ for (
 
 
     sprite.position.z =
-        10;
+        20;
 
 
     scene.add(
@@ -458,18 +636,15 @@ for (
 
 
 // ============================================================
-// 12. EDGE LINES
-//
-// P1 → P2
-// P2 → P3
-// P3 → P4
-// P4 → P1
+// EDGE LINES
 // ============================================================
 
 const edgeLines = [];
 
 
-// Four edges
+// ============================================================
+// CREATE 4 EDGES
+// ============================================================
 
 for (
     let i = 0;
@@ -477,22 +652,31 @@ for (
     i++
 ) {
 
-    // Outer glow
+
+    // --------------------------------------------------------
+    // GLOW EDGE
+    // --------------------------------------------------------
+
+    const glowGeometry =
+        new THREE.BufferGeometry();
+
 
     const glowMaterial =
         new THREE.LineBasicMaterial({
 
-            color: 0x00ffff,
+            color:
+                0x00ffff,
 
-            transparent: true,
+            transparent:
+                true,
 
-            opacity: 0.18
+            opacity:
+                0.25,
+
+            depthTest:
+                false
 
         });
-
-
-    const glowGeometry =
-        new THREE.BufferGeometry();
 
 
     const glowLine =
@@ -505,15 +689,12 @@ for (
         );
 
 
+    glowLine.position.z =
+        1;
+
+
     glowLine.visible =
         false;
-
-
-    glowLine.scale.set(
-        1,
-        1,
-        1
-    );
 
 
     scene.add(
@@ -521,22 +702,30 @@ for (
     );
 
 
-    // Main line
+    // --------------------------------------------------------
+    // MAIN EDGE
+    // --------------------------------------------------------
+
+    const lineGeometry =
+        new THREE.BufferGeometry();
+
 
     const lineMaterial =
         new THREE.LineBasicMaterial({
 
-            color: 0x00ffff,
+            color:
+                0x00ffff,
 
-            transparent: true,
+            transparent:
+                true,
 
-            opacity: 1
+            opacity:
+                1,
+
+            depthTest:
+                false
 
         });
-
-
-    const lineGeometry =
-        new THREE.BufferGeometry();
 
 
     const line =
@@ -547,6 +736,10 @@ for (
             lineMaterial
 
         );
+
+
+    line.position.z =
+        5;
 
 
     line.visible =
@@ -570,43 +763,81 @@ for (
 
 
 // ============================================================
-// 13. CONVERT MOUSE → THREE COORDINATES
+// MOUSE → PANEL COORDINATES
+//
+// IMPORTANT:
+//
+// We use the calibration panel's
+// bounding rectangle.
+//
+// NOT window coordinates.
+//
 // ============================================================
 
-function mouseToWorld(
+function pointerToPanel(
     event
 ) {
 
     const rect =
-        renderer.domElement
-            .getBoundingClientRect();
+        panel.getBoundingClientRect();
 
 
-    const x =
+    let x =
         event.clientX -
         rect.left;
 
 
-    const y =
+    let y =
         event.clientY -
         rect.top;
 
 
-    return new THREE.Vector3(
+    // Clamp
+
+    x =
+        Math.max(
+
+            0,
+
+            Math.min(
+
+                x,
+
+                panel.clientWidth
+
+            )
+
+        );
+
+
+    y =
+        Math.max(
+
+            0,
+
+            Math.min(
+
+                y,
+
+                panel.clientHeight
+
+            )
+
+        );
+
+
+    return {
 
         x,
+        y
 
-        y,
-
-        0
-
-    );
+    };
 
 }
 
 
 // ============================================================
-// 14. DISTANCE FROM MOUSE TO POINT
+// DISTANCE
 // ============================================================
 
 function distance(
@@ -617,21 +848,22 @@ function distance(
     const dx =
         a.x - b.x;
 
-
     const dy =
         a.y - b.y;
 
 
     return Math.sqrt(
+
         dx * dx +
         dy * dy
+
     );
 
 }
 
 
 // ============================================================
-// 15. FIND NEAREST POINT
+// FIND NEAREST POINT
 // ============================================================
 
 function findNearestPoint(
@@ -640,7 +872,6 @@ function findNearestPoint(
 
     let nearest =
         null;
-
 
     let nearestDistance =
         Infinity;
@@ -654,13 +885,17 @@ function findNearestPoint(
 
         const d =
             distance(
+
                 mouse,
+
                 points[i]
+
             );
 
 
         if (
-            d < nearestDistance
+            d <
+            nearestDistance
         ) {
 
             nearestDistance =
@@ -676,7 +911,8 @@ function findNearestPoint(
 
     return {
 
-        index: nearest,
+        index:
+            nearest,
 
         distance:
             nearestDistance
@@ -687,7 +923,7 @@ function findNearestPoint(
 
 
 // ============================================================
-// 16. MOUSE DOWN
+// POINTER DOWN
 // ============================================================
 
 renderer.domElement.addEventListener(
@@ -696,14 +932,27 @@ renderer.domElement.addEventListener(
 
     event => {
 
+
+        if (
+            !calibrationActive
+        ) {
+
+            return;
+
+        }
+
+
+        event.preventDefault();
+
+
         const mouse =
-            mouseToWorld(
+            pointerToPanel(
                 event
             );
 
 
         // ----------------------------------------------------
-        // FIRST: TRY TO DRAG EXISTING POINT
+        // TRY EXISTING POINT FIRST
         // ----------------------------------------------------
 
         if (
@@ -717,8 +966,11 @@ renderer.domElement.addEventListener(
 
 
             if (
+
                 nearest.index !== null &&
-                nearest.distance < 30
+
+                nearest.distance < 35
+
             ) {
 
                 selectedPoint =
@@ -746,7 +998,7 @@ renderer.domElement.addEventListener(
 
 
         // ----------------------------------------------------
-        // OTHERWISE CREATE NEW POINT
+        // CREATE NEW POINT
         // ----------------------------------------------------
 
         if (
@@ -769,6 +1021,17 @@ renderer.domElement.addEventListener(
 
             updateStatus();
 
+
+            console.log(
+
+                `P${points.length}:`,
+
+                mouse.x.toFixed(1),
+
+                mouse.y.toFixed(1)
+
+            );
+
         }
 
     }
@@ -777,7 +1040,7 @@ renderer.domElement.addEventListener(
 
 
 // ============================================================
-// 17. POINTER MOVE
+// POINTER MOVE
 // ============================================================
 
 renderer.domElement.addEventListener(
@@ -785,6 +1048,7 @@ renderer.domElement.addEventListener(
     "pointermove",
 
     event => {
+
 
         if (
             !dragging ||
@@ -796,8 +1060,11 @@ renderer.domElement.addEventListener(
         }
 
 
+        event.preventDefault();
+
+
         const mouse =
-            mouseToWorld(
+            pointerToPanel(
                 event
             );
 
@@ -816,13 +1083,17 @@ renderer.domElement.addEventListener(
 
         updateVisuals();
 
+
+        pointStatus.textContent =
+            `DRAGGING P${selectedPoint + 1}`;
+
     }
 
 );
 
 
 // ============================================================
-// 18. POINTER UP
+// POINTER UP
 // ============================================================
 
 renderer.domElement.addEventListener(
@@ -830,6 +1101,16 @@ renderer.domElement.addEventListener(
     "pointerup",
 
     event => {
+
+
+        if (
+            !dragging
+        ) {
+
+            return;
+
+        }
+
 
         dragging =
             false;
@@ -848,7 +1129,7 @@ renderer.domElement.addEventListener(
 
         }
 
-        catch (error) {}
+        catch {}
 
         
         updateStatus();
@@ -859,15 +1140,15 @@ renderer.domElement.addEventListener(
 
 
 // ============================================================
-// 19. UPDATE POINT VISUALS
+// UPDATE VISUALS
 // ============================================================
 
 function updateVisuals() {
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // POINTS
-    // --------------------------------------------------------
+    // ========================================================
 
     for (
         let i = 0;
@@ -877,7 +1158,6 @@ function updateVisuals() {
 
         const mesh =
             pointMeshes[i];
-
 
         const label =
             labels[i];
@@ -894,10 +1174,8 @@ function updateVisuals() {
             mesh.position.set(
 
                 p.x,
-
                 p.y,
-
-                5
+                10
 
             );
 
@@ -908,11 +1186,9 @@ function updateVisuals() {
 
             label.position.set(
 
-                p.x + 25,
-
+                p.x + 28,
                 p.y - 20,
-
-                10
+                20
 
             );
 
@@ -935,9 +1211,9 @@ function updateVisuals() {
     }
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // EDGES
-    // --------------------------------------------------------
+    // ========================================================
 
     for (
         let i = 0;
@@ -949,27 +1225,6 @@ function updateVisuals() {
             edgeLines[i];
 
 
-        // Need at least two points
-
-        if (
-            points.length <
-            2
-        ) {
-
-            edge.line.visible =
-                false;
-
-            edge.glowLine.visible =
-                false;
-
-            continue;
-
-        }
-
-
-        // Don't draw edge until
-        // its points exist
-
         const aIndex =
             i;
 
@@ -978,11 +1233,13 @@ function updateVisuals() {
             (i + 1) % 4;
 
 
+        // Need both points
+
         if (
-            aIndex >=
-            points.length ||
-            bIndex >=
-            points.length
+
+            aIndex >= points.length ||
+            bIndex >= points.length
+
         ) {
 
             edge.line.visible =
@@ -999,38 +1256,42 @@ function updateVisuals() {
         const a =
             points[aIndex];
 
-
         const b =
             points[bIndex];
 
+
+        // ----------------------------------------------------
+        // MAIN LINE
+        // ----------------------------------------------------
 
         const vertices =
             new Float32Array([
 
                 a.x,
                 a.y,
-                2,
+                5,
 
                 b.x,
                 b.y,
-                2
+                5
 
             ]);
 
 
-        edge.line.geometry.setAttribute(
+        edge.line.geometry
+            .setAttribute(
 
-            "position",
+                "position",
 
-            new THREE.BufferAttribute(
+                new THREE.BufferAttribute(
 
-                vertices,
+                    vertices,
 
-                3
+                    3
 
-            )
+                )
 
-        );
+            );
 
 
         edge.line.geometry
@@ -1040,12 +1301,15 @@ function updateVisuals() {
                 true;
 
 
+        edge.line.geometry.computeBoundingSphere();
+
+
         edge.line.visible =
             true;
 
 
         // ----------------------------------------------------
-        // GLOW
+        // GLOW LINE
         // ----------------------------------------------------
 
         const glowVertices =
@@ -1085,19 +1349,73 @@ function updateVisuals() {
                 true;
 
 
+        edge.glowLine.geometry.computeBoundingSphere();
+
+
         edge.glowLine.visible =
             true;
 
     }
 
+
+    updateCoordinates();
+
 }
 
 
 // ============================================================
-// 20. STATUS
+// COORDINATE DISPLAY
+// ============================================================
+
+function updateCoordinates() {
+
+
+    if (
+        points.length === 0
+    ) {
+
+        coordinates.textContent =
+            "No points";
+
+        return;
+
+    }
+
+
+    coordinates.innerHTML =
+        points
+            .map(
+
+                (p, i) =>
+
+                    `P${i + 1}: ` +
+                    `${Math.round(p.x)}, ` +
+                    `${Math.round(p.y)}`
+
+            )
+            .join("<br>");
+
+}
+
+
+// ============================================================
+// STATUS
 // ============================================================
 
 function updateStatus() {
+
+
+    if (
+        !calibrationActive
+    ) {
+
+        pointStatus.textContent =
+            "PRESS START";
+
+        return;
+
+    }
+
 
     if (
         points.length === 0
@@ -1152,7 +1470,7 @@ function updateStatus() {
     ) {
 
         pointStatus.textContent =
-            "✅ 4 POINTS CALIBRATED — DRAG TO EDIT";
+            "✓ 4 POINTS CALIBRATED — DRAG TO EDIT";
 
     }
 
@@ -1160,7 +1478,94 @@ function updateStatus() {
 
 
 // ============================================================
-// 21. RESET
+// RESET
+// ============================================================
+
+function resetPoints() {
+
+
+    points.length =
+        0;
+
+
+    selectedPoint =
+        null;
+
+
+    dragging =
+        false;
+
+
+    updateVisuals();
+
+    updateStatus();
+
+
+    console.log(
+        "🔄 Calibration reset"
+    );
+
+}
+
+
+// ============================================================
+// START CALIBRATION
+// ============================================================
+
+startButton.addEventListener(
+
+    "click",
+
+    () => {
+
+
+        calibrationActive =
+            true;
+
+
+        resetPoints();
+
+
+        startButton.textContent =
+            "CALIBRATION ACTIVE";
+
+
+        startButton.style.background =
+            "#ffff00";
+
+
+        pointStatus.textContent =
+            "SELECT P1";
+
+
+        console.log(
+            "🎯 Calibration initialized"
+        );
+
+    }
+
+);
+
+
+// ============================================================
+// RESET BUTTON
+// ============================================================
+
+resetButton.addEventListener(
+
+    "click",
+
+    () => {
+
+        resetPoints();
+
+    }
+
+);
+
+
+// ============================================================
+// KEYBOARD RESET
 // ============================================================
 
 window.addEventListener(
@@ -1169,31 +1574,13 @@ window.addEventListener(
 
     event => {
 
+
         if (
             event.key.toLowerCase() ===
             "r"
         ) {
 
-            points.length =
-                0;
-
-
-            selectedPoint =
-                null;
-
-
-            dragging =
-                false;
-
-
-            updateVisuals();
-
-            updateStatus();
-
-
-            console.log(
-                "🔄 Four points reset"
-            );
+            resetPoints();
 
         }
 
@@ -1203,53 +1590,10 @@ window.addEventListener(
 
 
 // ============================================================
-// 22. RESIZE
+// GLOW ANIMATION
 // ============================================================
 
-window.addEventListener(
-
-    "resize",
-
-    () => {
-
-        camera.left =
-            0;
-
-        camera.right =
-            window.innerWidth;
-
-        camera.top =
-            window.innerHeight;
-
-        camera.bottom =
-            0;
-
-
-        camera.updateProjectionMatrix();
-
-
-        renderer.setSize(
-
-            window.innerWidth,
-
-            window.innerHeight
-
-        );
-
-
-        updateVisuals();
-
-    }
-
-);
-
-
-// ============================================================
-// 23. GLOW ANIMATION
-// ============================================================
-
-let glowTime =
-    0;
+let glowTime = 0;
 
 
 function animateGlow(
@@ -1260,15 +1604,18 @@ function animateGlow(
         delta;
 
 
-    // Pulsing point glow
+    // ========================================================
+    // POINT GLOW
+    // ========================================================
 
-    const pulse =
-        0.10 +
+    const pointPulse =
+        0.12 +
+
         (
             Math.sin(
                 glowTime * 4
             ) + 1
-        ) * 0.08;
+        ) * 0.10;
 
 
     for (
@@ -1276,30 +1623,50 @@ function animateGlow(
     ) {
 
         if (
-            mesh.visible
+            !mesh.visible
         ) {
 
-            const glow =
-                mesh.children[0];
-
-
-            glow.material.opacity =
-                pulse;
+            continue;
 
         }
+
+
+        const glow =
+            mesh.children[0];
+
+
+        const innerGlow =
+            mesh.children[1];
+
+
+        glow.material.opacity =
+            pointPulse;
+
+
+        innerGlow.material.opacity =
+            0.25 +
+
+            (
+                Math.sin(
+                    glowTime * 5
+                ) + 1
+            ) * 0.15;
 
     }
 
 
-    // Pulsing edge glow
+    // ========================================================
+    // EDGE GLOW
+    // ========================================================
 
     const edgePulse =
-        0.12 +
+        0.15 +
+
         (
             Math.sin(
                 glowTime * 3
             ) + 1
-        ) * 0.08;
+        ) * 0.15;
 
 
     for (
@@ -1317,7 +1684,7 @@ function animateGlow(
 
 
 // ============================================================
-// 24. ANIMATION LOOP
+// ANIMATION
 // ============================================================
 
 const clock =
@@ -1325,6 +1692,7 @@ const clock =
 
 
 function animate() {
+
 
     requestAnimationFrame(
         animate
@@ -1343,6 +1711,7 @@ function animate() {
     renderer.render(
         scene,
         camera
+
     );
 
 }
@@ -1352,11 +1721,19 @@ animate();
 
 
 // ============================================================
-// START
+// INITIAL RESIZE
+// ============================================================
+
+resizeCalibration();
+
+
+// ============================================================
+// INITIAL STATUS
 // ============================================================
 
 updateStatus();
 
+
 console.log(
-    "🚀 LeapVE browser 4-point calibration ready"
+    "🚀 LeapVE calibration layer ready"
 );
