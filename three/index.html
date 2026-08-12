@@ -1,173 +1,28 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>LeapVE Debug</title>
-    <style>
-        html, body {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            overflow: hidden;
-            background: black;
-        }
-        #camera {
-            position: absolute;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            object-fit: cover;
-            z-index: 0;
-        }
-        #overlay {
-            position: absolute;
-            left: 0; top: 0;
-            width: 100%; height: 100%;
-            z-index: 1;
-            pointer-events: none;
-        }
-        .dot {
-            position: absolute;
-            width: 16px; height: 16px;
-            background: lime;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            display: none;
-            box-shadow: 0 0 10px lime;
-        }
-        .border-line {
-            position: absolute;
-            background: cyan;
-            transform-origin: left center;
-            display: none;
-            box-shadow: 0 0 6px cyan;
-        }
-        #log {
-            position: absolute;
-            left: 20px; top: 20px;
-            z-index: 10;
-            color: white;
-            font-family: monospace;
-            background: rgba(0,0,0,0.7);
-            padding: 12px;
-            max-width: 400px;
-            white-space: pre-wrap;
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeapVE AR</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="info">LEAPVE AR — 3D PIANO</div>
 
-    <img id="camera" src="http://localhost:5000/video">
-    <div id="overlay"></div>
-    <div id="log">Connecting...</div>
-
-    <script src="http://localhost:5000/socket.io/socket.io.js"></script>
-    <script>
-        const log = document.getElementById("log");
-        const overlay = document.getElementById("overlay");
-
-        function write(msg) {
-            log.textContent += "\n" + msg;
-            console.log(msg);
+    <!-- Three.js import map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
         }
-
-        // Create 4 dots
-        const dots = [];
-        for (let i = 0; i < 4; i++) {
-            const d = document.createElement("div");
-            d.className = "dot";
-            overlay.appendChild(d);
-            dots.push(d);
-        }
-
-        // Create 4 border lines
-        const lines = [];
-        for (let i = 0; i < 4; i++) {
-            const l = document.createElement("div");
-            l.className = "border-line";
-            overlay.appendChild(l);
-            lines.push(l);
-        }
-
-        write("Loading Socket.IO client...");
-
-        const socket = io("http://localhost:5000");
-
-        socket.on("connect", () => {
-            write("✅ Socket.IO CONNECTED");
-        });
-
-        socket.on("connect_error", (err) => {
-            write("❌ Connection error: " + err.message);
-        });
-
-        socket.on("disconnect", () => {
-            write("❌ DISCONNECTED");
-        });
-
-        socket.on("piano_points", (data) => {
-            write("📍 Received piano_points");
-
-            if (!data || !data.points) {
-                write("   (no data.points)");
-                return;
-            }
-            if (data.points.length !== 4) {
-                write("   (expected 4 points, got " + data.points.length + ")");
-                return;
-            }
-            if (!data.frame) {
-                write("   (no data.frame)");
-                return;
-            }
-
-            const pts = data.points;
-            const fw = data.frame.width;
-            const fh = data.frame.height;
-
-            write("   Frame: " + fw + "x" + fh);
-            write("   P1: " + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1));
-
-            const scaleX = window.innerWidth / fw;
-            const scaleY = window.innerHeight / fh;
-
-            // Position dots
-            for (let i = 0; i < 4; i++) {
-                const x = pts[i][0] * scaleX;
-                const y = pts[i][1] * scaleY;  // NO flip for CSS (0,0 is top-left)
-                dots[i].style.left = x + "px";
-                dots[i].style.top  = y + "px";
-                dots[i].style.display = "block";
-            }
-
-            // Draw border lines P1->P2, P2->P3, P3->P4, P4->P1
-            const pairs = [[0,1], [1,2], [2,3], [3,0]];
-            for (let i = 0; i < 4; i++) {
-                const a = pts[pairs[i][0]];
-                const b = pts[pairs[i][1]];
-                const x1 = a[0] * scaleX;
-                const y1 = a[1] * scaleY;
-                const x2 = b[0] * scaleX;
-                const y2 = b[1] * scaleY;
-
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const length = Math.sqrt(dx*dx + dy*dy);
-                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-
-                const line = lines[i];
-                line.style.width = length + "px";
-                line.style.height = "3px";
-                line.style.left = x1 + "px";
-                line.style.top  = y1 + "px";
-                line.style.transform = "rotate(" + angle + "deg)";
-                line.style.display = "block";
-            }
-        });
-
-        // Check if video loads
-        const cam = document.getElementById("camera");
-        cam.onload = () => write("✅ Video feed loaded");
-        cam.onerror = () => write("❌ Video feed FAILED (port 5000 down?)");
-
+    }
     </script>
+
+    <!-- Socket.IO client (MUST be before main.js) -->
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+
+    <!-- Our code -->
+    <script type="module" src="main.js"></script>
 </body>
 </html>

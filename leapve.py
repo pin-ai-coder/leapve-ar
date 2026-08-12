@@ -52,7 +52,7 @@ def generate_video():
 
 
 def run_server():
-    print("🚀 Socket.IO + MJPEG server: http://localhost:5000")
+    print("🚀 Socket.IO server: http://localhost:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=False,
                  allow_unsafe_werkzeug=True)
 
@@ -489,14 +489,11 @@ while True:
         old_gray = None
         bad_frames = 0
 
-    # Send points to browsers (raw pixels + frame size)
+    # Send points to browsers
     if key_polygon is not None:
         live_points = key_polygon.reshape(4, 2).tolist()
         try:
-            socketio.emit("piano_points", {
-                "points": live_points,
-                "frame": {"width": width, "height": height}
-            })
+            socketio.emit("piano_points", {"points": live_points})
         except Exception:
             pass
 
